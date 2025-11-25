@@ -44,6 +44,22 @@ wheels/
 .DS_Store
 Thumbs.db
 
-# Model cache (HuggingFace models can be large)
+# Fine-tuned models (large files)
+fine_tuned_model/
 models/
 *.bin
+pytorch_model.bin
+
+# Training logs and checkpoints
+logs/
+checkpoints/
+runs/
+wandb/
+
+# Dataset cache
+*.arrow
+.cache/
+
+# Large CSV files (optional - uncomment if you don't want to commit dataset)
+# Fake.csv
+# *.csv
