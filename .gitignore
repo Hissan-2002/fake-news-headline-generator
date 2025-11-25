@@ -26,7 +26,7 @@ wheels/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# PyTorch
+# PyTorch training files (not model files)
 *.pth
 *.pt
 
@@ -43,12 +43,6 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
-
-# Fine-tuned models (large files)
-fine_tuned_model/
-models/
-*.bin
-pytorch_model.bin
 
 # Training logs and checkpoints
 logs/
