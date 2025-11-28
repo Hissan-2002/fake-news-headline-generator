@@ -376,147 +376,109 @@ def load_base_model():
     
     return model, tokenizer, model_info
 
+
+
+import torch
+import re
+
 def generate_headline(topic, model, tokenizer, model_info):
-    """Generate funny and humorous fake news headline"""
-    model_type = model_info.get("model_type", "base")
+    # 1. CLEAN INPUT
+    topic = topic.strip().title()
     
-    # Try multiple generation attempts and pick the funniest one
-    best_headline = None
-    best_score = -1
+    # 2. PROMPT
+    # We end with just "Headline:" this time to let the model decide 
+    # if it wants to repeat the topic or not (we handle both cases below).
+    prompt = f"""
+Topic: Cats
+Headline: Cats Demand Equal Rights And Unlimited Tuna In New Bill
+###
+Topic: Homework
+Headline: Homework Banned After Students Prove It Causes Brain Freeze
+###
+Topic: {topic}
+Headline:"""
+
+    inputs = tokenizer.encode(prompt, return_tensors="pt")
     
-    for attempt in range(3):  # Try 3 times for better quality
-        # Use humorous prompts
-        prompts = [
-            f"Write a hilarious satirical fake news headline about {topic.strip()}:",
-            f"Create an absurd and funny headline about {topic.strip()}:",
-            f"Generate a ridiculous breaking news headline about {topic.strip()}:"
-        ]
-        prompt = prompts[attempt % len(prompts)]
-        
-        inputs = tokenizer.encode(prompt, return_tensors="pt")
-        
-        with torch.no_grad():
-            outputs = model.generate(
-                inputs,
-                max_length=inputs.shape[1] + 35,
-                min_length=inputs.shape[1] + 10,
-                do_sample=True,
-                temperature=0.9 + (attempt * 0.05),  # Higher temp for creativity
-                top_p=0.92,
-                top_k=50,
-                repetition_penalty=1.8,
-                no_repeat_ngram_size=2,
-                pad_token_id=tokenizer.eos_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-                num_return_sequences=1
-            )
-        
-        full_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        headline = full_output.replace(prompt, "").strip()
-        
-        # Aggressive cleaning
-        import re
-        
-        # Remove everything in brackets, parentheses, quotes
-        headline = re.sub(r'\[.*?\]|\(.*?\)|".*?"', '', headline)
-        
-        # Remove URLs and web-related text
-        headline = re.sub(r'http\S+|www\.\S+', '', headline)
-        headline = re.sub(r'\.(com|org|net|gov)\S*', '', headline)
-        
-        # Remove common garbage words/phrases
-        garbage = ['VIDEO', 'CLICK', 'IMAGE', 'PHOTO', 'Watch', 'Here', 'Link', 
-                   'Un-Called', 'Express Has', 'Shows Who', 'Free Expression',
-                   'Bill Of Rights', 'Paid For']
-        for word in garbage:
-            headline = re.sub(re.escape(word), '', headline, flags=re.IGNORECASE)
-        
-        # Remove special characters and clean up
-        headline = re.sub(r'[…–—]', '', headline)
-        headline = re.sub(r'\s+', ' ', headline)
-        
-        # Clean prompt remnants
-        headline = re.sub(r'^(Write|Create|Generate|Headline|Breaking|Exclusive|Satirical|Funny|Ridiculous|Absurd)[:,]?\s*', '', headline, flags=re.IGNORECASE)
-        
-        # Take only first complete sentence
-        sentences = re.split(r'[.!?]', headline)
-        headline = sentences[0].strip() if sentences else headline.strip()
-        
-        # Remove leading punctuation
-        headline = headline.lstrip(':;-–—"\' ')
-        
-        # Score for humor and quality
-        score = 0
-        topic_lower = topic.lower()
-        headline_lower = headline.lower()
-        
-        # Topic relevance is key
-        if topic_lower in headline_lower:
-            score += 20
-        
-        # Reward absurd/funny words
-        funny_words = ['declares', 'reveals', 'scientists', 'discovers', 'study', 'experts',
-                       'shocked', 'horrified', 'demands', 'causes', 'accidentally', 'secretly',
-                       'refuses', 'admits', 'claims', 'warns', 'predicts', 'announces']
-        score += sum(5 for word in funny_words if word in headline_lower)
-        
-        # Good length
-        if 30 < len(headline) < 120:
-            score += 15
-        
-        # Has capitalization
-        if any(char.isupper() for char in headline):
-            score += 5
-        
-        # No garbage text
-        if not any(bad in headline_lower for bad in ['http', 'www', 'click', 'watch', 'video']):
-            score += 10
-        
-        # Has numbers (funnier)
-        if any(char.isdigit() for char in headline):
-            score += 3
-        
-        if score > best_score and len(headline) > 15:
-            best_score = score
-            best_headline = headline
+    # 3. POISON LIST
+    forbidden_strings = [
+        "VIDEO", "Video", "video", "WATCH", "Watch", "watch",
+        "AUDIO", "Audio", "audio", "mp3", "mp4",
+        "CLICK", "Click", "click", "SUBSCRIBE", "Subscribe",
+        "IMAGE", "Image", "image", "JPG", "PNG", "http", "https", "www",
+        "Trump", "Biden", "Obama", "Clinton", "Pelosi", "Democrat", "Republican", 
+        "Conservative", "Liberal", "Economy", "Values", "Professor", "Supporter",
+        "PizzaGate", "Conspiracy", "Aliens" , "Tweet", "tweet","TWEETS"
+    ]
     
-    # Use best headline or create a funny fallback
-    if best_headline and len(best_headline) > 15:
-        headline = best_headline
+    # 4. TOKEN IDS
+    bad_words_ids = []
+    for word in forbidden_strings:
+        for variation in [word, " " + word, word.lower(), " " + word.lower(), word.upper(), " " + word.upper()]:
+            ids = tokenizer.encode(variation, add_special_tokens=False)
+            if len(ids) > 0: bad_words_ids.append(ids)
+
+    # 5. GENERATE
+    with torch.no_grad():
+        outputs = model.generate(
+            inputs,
+            max_new_tokens=45,
+            do_sample=True,
+            temperature=0.75,     
+            top_p=0.92,
+            repetition_penalty=1.3, 
+            bad_words_ids=bad_words_ids, 
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            num_return_sequences=1
+        )
+    
+    full_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    # --- 6. AGGRESSIVE CLEANING ---
+    
+    # Split by the LAST occurrence of "Headline:" to get the new stuff
+    if "Headline:" in full_output:
+        raw_headline = full_output.rsplit("Headline:", 1)[-1]
     else:
-        # Hilarious topic-specific fallback headlines
-        funny_templates = [
-            f"Scientists Discover {topic.title()} Can Cure Monday Blues",
-            f"Breaking: {topic.title()} Declared Eighth Wonder of the World",
-            f"{topic.title()} Causes Mass Confusion at UN Meeting",
-            f"Study Reveals {topic.title()} is 99% Magic, 1% Mystery",
-            f"Experts Warn: Too Much {topic.title()} May Cause Spontaneous Dancing",
-            f"World Leaders Gather to Debate Proper Way to Enjoy {topic.title()}",
-            f"{topic.title()} Accidentally Solves Climate Change, Scientists Baffled",
-            f"Breaking: {topic.title()} Voted 'Most Likely to Succeed' by Aliens",
-            f"Local Man Refuses to Share {topic.title()}, Nation Divided",
-            f"Study: 10 Out of 10 Cats Prefer {topic.title()} Over World Peace"
-        ]
-        import random
-        headline = random.choice(funny_templates)
+        raw_headline = full_output
+
+    # Cut off at new lines or the next Topic marker
+    raw_headline = raw_headline.split('\n')[0].split('Topic:')[0].split('###')[0].strip()
     
-    # Final cleanup and formatting
-    headline = headline.strip()
+    # 7. REGEX SCRUBBER (Removes "Video", "Audio", URLs)
+    # The \w* pattern ensures we kill "videoI" or "audioclip"
+    junk_pattern = re.compile(r'\b(VIDEO|AUDIO|WATCH|CLICK|SUBSCRIBE|IMAGE|HTTP|HTTPS|WWW)\b', re.IGNORECASE)
+    raw_headline = junk_pattern.sub('', raw_headline)
     
-    # Capitalize first letter
-    if headline and headline[0].islower():
-        headline = headline[0].upper() + headline[1:]
+    fragment_pattern = re.compile(r'\w*(video|audio|http)\w*', re.IGNORECASE)
+    # ONLY scrub fragments if the topic itself doesn't contain them!
+    if "video" not in topic.lower() and "audio" not in topic.lower():
+        raw_headline = fragment_pattern.sub('', raw_headline)
+
+    # 8. ANTI-STUTTER LOGIC
+    # Check if the model repeated the topic at the start
+    if raw_headline.lower().startswith(topic.lower()):
+        # If it did, keep it as is (it's a complete sentence)
+        final_headline = raw_headline
+    else:
+        # If it didn't, attach the topic to the front
+        final_headline = f"{topic} {raw_headline}"
+
+    # 9. FINAL POLISH
+    final_headline = re.sub(r'\s+', ' ', final_headline) # Remove double spaces
+    final_headline = re.sub(r'[^\w\s\.,!\?\'"\-\$]', '', final_headline) # Remove weird symbols
     
-    # Add exclamation for comedy effect if no punctuation
-    if headline and not headline.endswith(('.', '!', '?')):
-        # Use exclamation for funnier effect
-        headline += "!"
-    
-    # Final validation
-    if len(headline) < 20 or len(headline) > 150:
-        return f"Breaking: {topic.title()} Causes Unprecedented Outbreak of Uncontrollable Giggles!"
-    
-    return headline
+    # Ensure it ends with punctuation
+    if final_headline and not final_headline.endswith(('.', '!', '?')):
+        final_headline += "!"
+        
+    # Capitalize
+    final_headline = final_headline.strip()
+    if len(final_headline) > 1:
+        final_headline = final_headline[0].upper() + final_headline[1:]
+
+    return final_headline
 
 def get_base64_image(image_path):
     """Convert image to base64 for embedding"""
