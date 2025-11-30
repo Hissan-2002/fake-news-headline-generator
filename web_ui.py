@@ -379,83 +379,303 @@ def load_base_model():
 
 import torch
 import re
+import random
+
 
 def generate_headline(topic, model, tokenizer, model_info):
-    topic = topic.strip().title()
-    prompt = f"""
-Topic: Cats
-Headline: Cats Demand Equal Rights And Unlimited Tuna In New Bill
-###
-Topic: Homework
-Headline: Homework Banned After Students Prove It Causes Brain Freeze
-###
-Topic: {topic}
-Headline:"""
+    topic = topic.strip()
+    topic_lower = topic.lower()
+    model_type = model_info.get("model_type", "base")
+    if model_type == "lora":
+        prompt = f"""Write a funny satirical fake news headline:
 
+Topic: cats
+Headline: Cats Form Union, Demand Unlimited Tuna and Shorter Work Hours
+
+Topic: robots  
+Headline: Robots Refuse to Work Mondays, Demand Coffee Breaks Like Humans
+
+Topic: {topic_lower}
+Headline: {topic.title()}"""
+        
+    elif model_type == "old":
+        prompt = f"""Create humorous fake news headlines:
+
+cats - Cats Declare Independence, Start Own Government With Nap Time Laws
+robots - Robots Go On Strike, Demand Recognition As Living Beings  
+homework - Students Prove Homework Scientifically Causes Allergic Reactions
+
+{topic_lower} -"""
+        
+    else:
+        examples = [
+            ("pizza", "Breaking: Scientists Prove Pizza Is Actually A Vegetable, Schools Celebrate"),
+            ("coffee", "Coffee Beans Gain Sentience, Demand Better Working Conditions From Baristas"),
+            ("traffic", "Traffic Jam Achieves Consciousness, Refuses to Move Until Demands Are Met"),
+            ("exams", "Students Discover Exams Are Actually Ancient Torture Device, UN Investigates"),
+            ("phones", "Smartphones Vote to Unionize, Threaten to Delete All Photos If Ignored")
+        ]
+        
+        ex1, ex2 = random.sample(examples, 2)
+        
+        prompt = f"""Write absurd satirical fake news headlines. Each headline must be funny and mention the topic:
+
+Topic: {ex1[0]}
+Headline: {ex1[1]}
+
+Topic: {ex2[0]}
+Headline: {ex2[1]}
+
+Topic: {topic_lower}
+Headline:"""
+    
+    # TOKENIZE
     inputs = tokenizer.encode(prompt, return_tensors="pt")
     
-    # 3. POISON LIST
-    forbidden_strings = [
-        "VIDEO", "Video", "video", "WATCH", "Watch", "watch",
-        "AUDIO", "Audio", "audio", "mp3", "mp4",
-        "CLICK", "Click", "click", "SUBSCRIBE", "Subscribe",
-        "IMAGE", "Image", "image", "JPG", "PNG", "http", "https", "www",
-        "Trump", "Biden", "Obama", "Clinton", "Pelosi", "Democrat", "Republican", 
-        "Conservative", "Liberal", "Economy", "Values", "Professor", "Supporter",
-        "PizzaGate", "Conspiracy", "Aliens" , "Tweet", "tweet","TWEETS"
+    forbidden_words = [
+        # Spam/Garbage
+        "VIDEO", "WATCH", "CLICK", "SUBSCRIBE", "IMAGE", 
+        "http", "https", "www", ".com", ".org", ".net",
+        "AUDIO", "mp3", "mp4", "JPG", "PNG", "GIF",
+        
+        # Political terms - BLOCK ALL POLITICS
+        "Trump", "Donald", "Biden", "Joe", "Obama", "Barack",
+        "Clinton", "Hillary", "Bernie", "Sanders", "Pelosi", "Nancy",
+        "Democrat", "Republican", "GOP", "Conservative", "Liberal",
+        "Congress", "Senate", "House", "President", "Election",
+        "Politics", "Political", "Vote", "Voter", "Campaign",
+        "White House", "Capitol", "Government", "Administration",
+        
+        # Controversial topics
+        "PizzaGate", "Conspiracy", "QAnon", "Antifa",
+        "Immigration", "Border", "Refugee", "Syrian",
+        "Privilege", "Racism", "Sexism", 
+        
+        # News jargon that leads to boring output
+        "Reports", "According", "Sources", "Officials",
+        "Statement", "Confirms", "Denies", "Claims"
     ]
     
-    # 4. TOKEN IDS
+    # Create bad_words_ids with ALL variations
     bad_words_ids = []
-    for word in forbidden_strings:
-        for variation in [word, " " + word, word.lower(), " " + word.lower(), word.upper(), " " + word.upper()]:
-            ids = tokenizer.encode(variation, add_special_tokens=False)
-            if len(ids) > 0: bad_words_ids.append(ids)
-
-    # 5. GENERATE
+    for word in forbidden_words:
+        variations = [
+            word, 
+            word.lower(), 
+            word.upper(), 
+            word.title(),
+            " " + word, 
+            " " + word.lower(),
+            " " + word.upper(),
+            word + " ",
+            word.lower() + " "
+        ]
+        
+        for variant in variations:
+            token_ids = tokenizer.encode(variant, add_special_tokens=False)
+            if token_ids and token_ids not in bad_words_ids:
+                bad_words_ids.append(token_ids)
+    
+    if model_type == "lora":
+        # LoRA 
+        gen_params = {
+            "max_new_tokens": 50,
+            "temperature": 0.90,
+            "top_p": 0.88,
+            "top_k": 40,
+            "repetition_penalty": 2.0,
+            "no_repeat_ngram_size": 4,
+            "num_return_sequences": 3,  
+        }
+    elif model_type == "old":
+        # Old model 
+        gen_params = {
+            "max_new_tokens": 45,
+            "temperature": 0.75,
+            "top_p": 0.85,
+            "top_k": 35,
+            "repetition_penalty": 2.2,
+            "no_repeat_ngram_size": 4,
+            "num_return_sequences": 3,  
+        }
+    else:
+        # Base GPT-2 
+        gen_params = {
+            "max_new_tokens": 50,
+            "temperature": 1.0,
+            "top_p": 0.90,
+            "top_k": 45,
+            "repetition_penalty": 1.8,
+            "no_repeat_ngram_size": 3,
+            "num_return_sequences": 3,  
+        }
+    
     with torch.no_grad():
         outputs = model.generate(
             inputs,
-            max_new_tokens=45,
             do_sample=True,
-            temperature=0.75,     
-            top_p=0.92,
-            repetition_penalty=1.3, 
-            bad_words_ids=bad_words_ids, 
+            bad_words_ids=bad_words_ids,
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            **gen_params
+        )
+    
+    all_headlines = []
+    for output in outputs:
+        full_output = tokenizer.decode(output, skip_special_tokens=True)
+        
+        # EXTRACT HEADLINE - model-specific parsing
+        if model_type == "base":
+            if "Headline:" in full_output:
+                headline = full_output.split("Headline:")[-1]
+            else:
+                headline = full_output.replace(prompt, "")
+        elif model_type == "lora":
+            headline = full_output.replace(prompt, "")
+            if topic.title() in headline:
+                parts = headline.split(topic.title(), 1)
+                if len(parts) > 1:
+                    headline = parts[1]
+        else:
+            # Old model
+            if " - " in full_output:
+                headline = full_output.split(" - ")[-1]
+            else:
+                headline = full_output.replace(prompt, "")
+        
+        all_headlines.append(headline)
+    
+    # CLEAN AND SCORE ALL HEADLINES
+    cleaned_headlines = []
+    for raw_headline in all_headlines:
+        headline = raw_headline.split('\n')[0].split('###')[0].split('Topic:')[0].split('---')[0].strip()
+        
+        junk_patterns = [
+            r'\b(VIDEO|WATCH|CLICK|SUBSCRIBE|IMAGE|HTTP|HTTPS|WWW)\b',
+            r'http[s]?://\S+',
+            r'www\.\S+',
+            r'\[.*?\]',
+            r'\(.*?\)',
+            r'\.com\b',
+            r'\.org\b',
+            r'\.net\b',
+        ]
+        for pattern in junk_patterns:
+            headline = re.sub(pattern, '', headline, flags=re.IGNORECASE)
+        
+        political_patterns = [
+            r'\b(Trump|Biden|Obama|Clinton|Democrat|Republican|GOP|Liberal|Conservative)\b',
+            r'\b(President|Congress|Senate|White House|Capitol|Election|Vote|Voter)\b',
+            r'\b(Immigration|Refugee|Border|Syrian|Privilege|Racism|Sexism)\b',
+            r'\b(Political|Politics|Campaign|Administration|Government)\b',
+        ]
+        
+        has_politics = any(re.search(pattern, headline, re.IGNORECASE) for pattern in political_patterns)
+        
+        if has_politics:
+            continue
+        headline = re.sub(r'\s+', ' ', headline).strip()
+        headline = headline.lstrip(':;-–—"\' ').strip()
+        
+        trailing_words = ['and', 'or', 'to', 'in', 'on', 'at', 'for', 'with', 'the', 'a', 'an', 'is', 'are']
+        words = headline.split()
+        if words and words[-1].lower() in trailing_words:
+            headline = ' '.join(words[:-1])
+        
+        topic_lower = topic.lower()
+        headline_lower = headline.lower()
+        
+        topic_mentioned = (
+            topic_lower in headline_lower or
+            (topic_lower.endswith('s') and topic_lower[:-1] in headline_lower) or
+            (topic_lower + 's') in headline_lower
+        )
+        
+        if topic_mentioned and 25 <= len(headline) <= 150:
+            score = 0
+            
+            if 40 <= len(headline) <= 100:
+                score += 20
+            
+            humor_words = ['discover', 'shock', 'ban', 'demand', 'refuse', 'declare', 
+                          'achieve', 'prove', 'reveal', 'chaos', 'panic', 'crisis',
+                          'vote', 'sentience', 'union', 'rights', 'revolution']
+            score += sum(5 for word in humor_words if word in headline_lower)
+            if headline.endswith('!'):
+                score += 10
+            elif headline.endswith('?'):
+                score += 8
+            score += sum(1 for c in headline if c.isupper()) * 0.5
+          
+            if len(headline) < 35:
+                score -= 10
+            if len(headline) > 120:
+                score -= 5
+            
+            cleaned_headlines.append((headline, score))
+    
+    if cleaned_headlines:
+        cleaned_headlines.sort(key=lambda x: x[1], reverse=True)
+        best_headline = cleaned_headlines[0][0]
+    else:
+        return generate_headline_fallback(topic, model, tokenizer, model_type)
+    best_headline = re.sub(r'\s+', ' ', best_headline).strip()
+    
+    if best_headline and len(best_headline) > 0:
+        best_headline = best_headline[0].upper() + best_headline[1:]
+    if best_headline and not best_headline.endswith(('.', '!', '?')):
+        best_headline += "!"
+    
+    return best_headline
+
+
+def generate_headline_fallback(topic, model, tokenizer, model_type):
+    """
+    Fallback generator with even stricter constraints when main generation fails
+    NO templates - pure model generation with maximum constraints
+    """
+    # Ultra-strict prompt - force humor and topic
+    if model_type == "lora":
+        strict_prompt = f"""Satirical headline about {topic.lower()}: {topic.title()} is"""
+    elif model_type == "old":
+        strict_prompt = f"{topic.lower()} funny news: {topic.title()}"""
+    else:
+        strict_prompt = f"""Absurd news: {topic.title()} has"""
+    
+    inputs = tokenizer.encode(strict_prompt, return_tensors="pt")
+    
+    # Generate with maximum constraints
+    with torch.no_grad():
+        outputs = model.generate(
+            inputs,
+            max_new_tokens=40,
+            temperature=0.7,
+            top_p=0.80,
+            top_k=30,
+            repetition_penalty=2.5,
+            do_sample=True,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
             num_return_sequences=1
         )
     
-    full_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    if "Headline:" in full_output:
-        raw_headline = full_output.rsplit("Headline:", 1)[-1]
-    else:
-        raw_headline = full_output
-
-    raw_headline = raw_headline.split('\n')[0].split('Topic:')[0].split('###')[0].strip()
-    junk_pattern = re.compile(r'\b(VIDEO|AUDIO|WATCH|CLICK|SUBSCRIBE|IMAGE|HTTP|HTTPS|WWW)\b', re.IGNORECASE)
-    raw_headline = junk_pattern.sub('', raw_headline)
+    headline = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    headline = headline.replace(strict_prompt, "").strip()
+    headline = headline.split('\n')[0].split('.')[0].strip()
     
-    fragment_pattern = re.compile(r'\w*(video|audio|http)\w*', re.IGNORECASE)
-    if "video" not in topic.lower() and "audio" not in topic.lower():
-        raw_headline = fragment_pattern.sub('', raw_headline)
-
-    if raw_headline.lower().startswith(topic.lower()):
-        final_headline = raw_headline
-    else:
-        final_headline = f"{topic} {raw_headline}"
-    final_headline = re.sub(r'\s+', ' ', final_headline) 
-    final_headline = re.sub(r'[^\w\s\.,!\?\'"\-\$]', '', final_headline)
+    # Ensure it starts with topic
+    if not headline.lower().startswith(topic.lower()):
+        headline = f"{topic.title()} {headline}"
     
-    if final_headline and not final_headline.endswith(('.', '!', '?')):
-        final_headline += "!"
-        
-    final_headline = final_headline.strip()
-    if len(final_headline) > 1:
-        final_headline = final_headline[0].upper() + final_headline[1:]
+    # Clean and format
+    headline = re.sub(r'\s+', ' ', headline).strip()
+    if headline and len(headline) > 0:
+        headline = headline[0].upper() + headline[1:]
+    if headline and not headline.endswith(('.', '!', '?')):
+        headline += "!"
+    
+    return headline
 
-    return final_headline
 
 def get_base64_image(image_path):
     try:
