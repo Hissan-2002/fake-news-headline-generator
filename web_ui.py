@@ -329,7 +329,6 @@ st.markdown("""
 # Cache models separately
 @st.cache_resource
 def load_old_finetuned_model():
-    """Load old full fine-tuned model"""
     path = "./fine_tuned_model/final"
     if os.path.exists(path):
         tokenizer = AutoTokenizer.from_pretrained(path)
@@ -382,12 +381,7 @@ import torch
 import re
 
 def generate_headline(topic, model, tokenizer, model_info):
-    # 1. CLEAN INPUT
     topic = topic.strip().title()
-    
-    # 2. PROMPT
-    # We end with just "Headline:" this time to let the model decide 
-    # if it wants to repeat the topic or not (we handle both cases below).
     prompt = f"""
 Topic: Cats
 Headline: Cats Demand Equal Rights And Unlimited Tuna In New Bill
@@ -434,46 +428,29 @@ Headline:"""
         )
     
     full_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
-    # --- 6. AGGRESSIVE CLEANING ---
-    
-    # Split by the LAST occurrence of "Headline:" to get the new stuff
     if "Headline:" in full_output:
         raw_headline = full_output.rsplit("Headline:", 1)[-1]
     else:
         raw_headline = full_output
 
-    # Cut off at new lines or the next Topic marker
     raw_headline = raw_headline.split('\n')[0].split('Topic:')[0].split('###')[0].strip()
-    
-    # 7. REGEX SCRUBBER (Removes "Video", "Audio", URLs)
-    # The \w* pattern ensures we kill "videoI" or "audioclip"
     junk_pattern = re.compile(r'\b(VIDEO|AUDIO|WATCH|CLICK|SUBSCRIBE|IMAGE|HTTP|HTTPS|WWW)\b', re.IGNORECASE)
     raw_headline = junk_pattern.sub('', raw_headline)
     
     fragment_pattern = re.compile(r'\w*(video|audio|http)\w*', re.IGNORECASE)
-    # ONLY scrub fragments if the topic itself doesn't contain them!
     if "video" not in topic.lower() and "audio" not in topic.lower():
         raw_headline = fragment_pattern.sub('', raw_headline)
 
-    # 8. ANTI-STUTTER LOGIC
-    # Check if the model repeated the topic at the start
     if raw_headline.lower().startswith(topic.lower()):
-        # If it did, keep it as is (it's a complete sentence)
         final_headline = raw_headline
     else:
-        # If it didn't, attach the topic to the front
         final_headline = f"{topic} {raw_headline}"
-
-    # 9. FINAL POLISH
-    final_headline = re.sub(r'\s+', ' ', final_headline) # Remove double spaces
-    final_headline = re.sub(r'[^\w\s\.,!\?\'"\-\$]', '', final_headline) # Remove weird symbols
+    final_headline = re.sub(r'\s+', ' ', final_headline) 
+    final_headline = re.sub(r'[^\w\s\.,!\?\'"\-\$]', '', final_headline)
     
-    # Ensure it ends with punctuation
     if final_headline and not final_headline.endswith(('.', '!', '?')):
         final_headline += "!"
         
-    # Capitalize
     final_headline = final_headline.strip()
     if len(final_headline) > 1:
         final_headline = final_headline[0].upper() + final_headline[1:]
@@ -481,7 +458,6 @@ Headline:"""
     return final_headline
 
 def get_base64_image(image_path):
-    """Convert image to base64 for embedding"""
     try:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
@@ -490,13 +466,10 @@ def get_base64_image(image_path):
 
 # Main UI
 def main():
-    # Load all three models
     with st.spinner("Loading AI models..."):
         old_model, old_tokenizer, old_info = load_old_finetuned_model()
         lora_model, lora_tokenizer, lora_info = load_lora_model()
         base_model, base_tokenizer, base_info = load_base_model()
-    
-    # Get logo
     logo_path = "BluffifyLogo.png"
     logo_base64 = get_base64_image(logo_path)
     
@@ -562,8 +535,6 @@ def main():
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Model Selection Section with Card Icons
     st.markdown("""
     <h2 style='font-family: "Space Grotesk", sans-serif; font-size: 1.5rem; font-weight: 600;
                color: #7540ce; text-align: center; margin: 3rem 0 1rem 0; letter-spacing: -0.5px;'>
@@ -600,9 +571,6 @@ def main():
             st.info(f"Only {mode} is available.")
     
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Input Section with Professional Styling - CENTERED ALIGNMENT
-    # Adjusted columns for better centering
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("""
@@ -632,10 +600,7 @@ def main():
     # Generation Section
     if generate_btn:
         if topic.strip():
-            
-            # Compare All Models - Show all available models side-by-side
             if mode == "Compare All Models":
-                # Create a placeholder for the loader that we can clear
                 loader_placeholder = st.empty()
                 
                 # Show loader
@@ -648,8 +613,6 @@ def main():
                         Generating with all available models...
                     </p>
                     """, unsafe_allow_html=True)
-                
-                # Generate headlines for all available models
                 headlines = []
                 
                 if old_info:
@@ -662,13 +625,9 @@ def main():
                 
                 headline_base = generate_headline(topic, base_model, base_tokenizer, base_info)
                 headlines.append(("Base GPT-2", headline_base, "linear-gradient(135deg, #6c757d, #8a929a)", "rgba(100, 100, 120, 0.3)", "124M parameters"))
-                
-                # Clear the loader
                 loader_placeholder.empty()
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-
-                # Display all models side-by-side
                 cols = st.columns(len(headlines), gap="medium")
                 
                 for idx, (name, headline, chip_bg, shadow_color, details) in enumerate(headlines):
@@ -704,8 +663,6 @@ def main():
                             }}
                         </style>
                         """, unsafe_allow_html=True)
-            
-            # Single Model - Professional Result Card
             else:
                 if mode == "LoRA Fine-Tuned (New)" and lora_info:
                     model, tokenizer, model_info = lora_model, lora_tokenizer, lora_info
@@ -725,11 +682,7 @@ def main():
                     border_color = "rgba(100, 100, 120, 0.3)"
                     shadow_color = "rgba(0, 0, 0, 0.3)"
                     model_details = "Base GPT-2 | 124M parameters"
-                
-                # Create a placeholder for the loader
                 loader_placeholder = st.empty()
-                
-                # Show loader
                 with loader_placeholder.container():
                     st.markdown("""
                     <div class="custom-loader">
@@ -739,11 +692,7 @@ def main():
                         Generating your headline...
                     </p>
                     """, unsafe_allow_html=True)
-                
-                # Generate headline
                 headline = generate_headline(topic, model, tokenizer, model_info)
-                
-                # Clear the loader
                 loader_placeholder.empty()
                 
                 col1, col2, col3 = st.columns([0.5, 3, 0.5])
@@ -779,7 +728,6 @@ def main():
         else:
             st.error("⚠️ Please enter a topic to generate a headline.")
     
-    # Model Information Panel
     st.markdown("<br><br>", unsafe_allow_html=True)
     
     with st.expander("📊 Model Information & Technical Details"):
@@ -834,8 +782,6 @@ def main():
             """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Professional Footer
     st.markdown("""
     <div style='margin-top: 5rem; padding: 2.5rem 0; text-align: center;
                border-top: 1px solid rgba(117, 64, 206, 0.2);'>
