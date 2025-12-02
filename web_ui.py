@@ -432,18 +432,17 @@ Headline:"""
     inputs = tokenizer.encode(prompt, return_tensors="pt")
     
     forbidden_words = [
-        # Spam/Garbage
         "VIDEO", "WATCH", "CLICK", "SUBSCRIBE", "IMAGE", 
         "http", "https", "www", ".com", ".org", ".net",
         "AUDIO", "mp3", "mp4", "JPG", "PNG", "GIF",
-        
-        # Political terms - BLOCK ALL POLITICS
         "Trump", "Donald", "Biden", "Joe", "Obama", "Barack",
         "Clinton", "Hillary", "Bernie", "Sanders", "Pelosi", "Nancy",
         "Democrat", "Republican", "GOP", "Conservative", "Liberal",
         "Congress", "Senate", "House", "President", "Election",
         "Politics", "Political", "Vote", "Voter", "Campaign",
         "White House", "Capitol", "Government", "Administration",
+        "[Video]", "[video]", "[VIDEO]", "(Video)", "(video)", "(VIDEO)",
+        "[Audio]", "[audio]", "[AUDIO]", "(Audio)", "(audio)", "(AUDIO)",
     ]
     
     # Create bad_words_ids with ALL variations
@@ -544,6 +543,10 @@ Headline:"""
             r'\b(VIDEO|WATCH|CLICK|SUBSCRIBE|IMAGE|HTTP|HTTPS|WWW)\b',
             r'http[s]?://\S+',
             r'www\.\S+',
+            r'\[.*?[Vv]ideo.*?\]',
+            r'\(.*?[Vv]ideo.*?\)',
+            r'\[.*?[Aa]udio.*?\]',
+            r'\(.*?[Aa]udio.*?\)',
             r'\[.*?\]',
             r'\(.*?\)',
             r'\.com\b',
