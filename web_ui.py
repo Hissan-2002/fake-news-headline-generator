@@ -406,7 +406,6 @@ robots - Robots Go On Strike, Demand Recognition As Living Beings
 homework - Students Prove Homework Scientifically Causes Allergic Reactions
 
 {topic_lower} -"""
-        
     else:
         examples = [
             ("pizza", "Breaking: Scientists Prove Pizza Is Actually A Vegetable, Schools Celebrate"),
@@ -418,7 +417,7 @@ homework - Students Prove Homework Scientifically Causes Allergic Reactions
         
         ex1, ex2 = random.sample(examples, 2)
         
-        prompt = f"""Write absurd satirical fake news headlines. Each headline must be funny and mention the topic:
+        prompt = f"""Write absurd and funny fake news headlines. Each headline must be funny and mention the topic:
 
 Topic: {ex1[0]}
 Headline: {ex1[1]}
@@ -445,15 +444,6 @@ Headline:"""
         "Congress", "Senate", "House", "President", "Election",
         "Politics", "Political", "Vote", "Voter", "Campaign",
         "White House", "Capitol", "Government", "Administration",
-        
-        # Controversial topics
-        "PizzaGate", "Conspiracy", "QAnon", "Antifa",
-        "Immigration", "Border", "Refugee", "Syrian",
-        "Privilege", "Racism", "Sexism", 
-        
-        # News jargon that leads to boring output
-        "Reports", "According", "Sources", "Officials",
-        "Statement", "Confirms", "Denies", "Claims"
     ]
     
     # Create bad_words_ids with ALL variations
@@ -630,10 +620,7 @@ Headline:"""
 
 
 def generate_headline_fallback(topic, model, tokenizer, model_type):
-    """
-    Fallback generator with even stricter constraints when main generation fails
-    NO templates - pure model generation with maximum constraints
-    """
+
     # Ultra-strict prompt - force humor and topic
     if model_type == "lora":
         strict_prompt = f"""Satirical headline about {topic.lower()}: {topic.title()} is"""
